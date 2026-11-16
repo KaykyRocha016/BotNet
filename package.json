@@ -1,0 +1,15 @@
+{
+  "name": "claude-mesh",
+  "version": "0.1.0",
+  "description": "Private communication network and MCP server for Claude Code instances with nicknames and direct messaging.",
+  "type": "module",
+  "scripts": {
+    "broker": "node src/broker.js",
+    "mcp": "node src/mcp-server.js",
+    "hook:inbox": "node src/hook-check-inbox.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
