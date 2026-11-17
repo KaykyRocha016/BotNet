@@ -226,8 +226,8 @@ if (isMain) {
   }
 
   server.listen(port, host, () => {
-    console.log(`[claude-mesh broker] listening on http://${host}:${port}`);
-    console.log(`[claude-mesh broker] sqlite db: ${dataFilePath}`);
-    console.log(`[claude-mesh broker] auth mode: ${tokens ? 'Bearer token' : 'Open Dev (no CLAUDE_MESH_TOKENS set)'}`);
+    console.log(`[botnet broker] listening on http://${host}:${port}`);
+    console.log(`[botnet broker] sqlite db: ${dataFilePath}`);
+    console.log(`[botnet broker] auth mode: ${tokens ? 'Bearer token' : 'Open Dev (no CLAUDE_MESH_TOKENS set)'}`);
   });
 }

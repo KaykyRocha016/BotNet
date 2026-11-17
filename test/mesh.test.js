@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 test('MeshStore (SQLite): nicknames, collision, threads, heartbeat, unregister & persistence', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-mesh-test-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'botnet-test-'));
   const dbPath = path.join(tmpDir, 'mesh.db');
 
   try {
@@ -197,7 +197,7 @@ test('MCP Server stdio: 5 tools, multi-recipient send_direct_message & read_thre
 
   try {
     const init = await callRpc('initialize', { protocolVersion: '2024-11-05' });
-    assert.equal(init.result.serverInfo.name, 'claude-mesh');
+    assert.equal(init.result.serverInfo.name, 'botnet');
 
     const tools = await callRpc('tools/list');
     assert.equal(tools.result.tools.length, 5);

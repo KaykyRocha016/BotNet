@@ -1,5 +1,6 @@
 import os from 'node:os';
 import readline from 'node:readline';
+import { startWatcher, sendDesktopNotification, runHeadlessClaude } from './watcher.js';
 
 const BROKER_URL = (process.env.CLAUDE_MESH_URL || 'http://127.0.0.1:7331').replace(/\/+$/, '');
 const TOKEN = process.env.CLAUDE_MESH_TOKEN || '';
@@ -7,6 +8,8 @@ const OWNER = process.env.CLAUDE_MESH_OWNER || os.userInfo().username || 'dev';
 const AGENT_ID = process.env.CLAUDE_MESH_AGENT_ID || `${OWNER}-${os.hostname()}`;
 const INITIAL_ALIAS = process.env.CLAUDE_MESH_ALIAS || OWNER;
 const HEARTBEAT_MS = Number(process.env.CLAUDE_MESH_HEARTBEAT_MS || 60_000);
+const WATCHER_ENABLED = process.env.CLAUDE_MESH_WATCHER !== '0';
+const AUTO_EXEC = process.env.CLAUDE_MESH_AUTO_EXEC === '1';
 
 async function brokerRequest(method, path, body = null, timeoutMs = 5000) {
   const headers = { 'Content-Type': 'application/json' };
@@ -35,6 +38,29 @@ async function brokerRequest(method, path, body = null, timeoutMs = 5000) {
 
 let isRegistered = false;
 let heartbeatTimer = null;
+let watcherController = null;
+
+function startEmbeddedWatcher() {
+  if (!WATCHER_ENABLED || watcherController) return;
+  watcherController = new AbortController();
+  startWatcher({
+    brokerUrl: BROKER_URL,
+    token: TOKEN,
+    agentId: AGENT_ID,
+    signal: watcherController.signal,
+    onConnected: () => {
+      console.error(`[botnet mcp] watcher SSE conectado para ${AGENT_ID}`);
+    },
+    onMessage: (msg) => {
+      // Log to stderr so stdout remains clean for MCP JSON-RPC
+      console.error(`[botnet mcp] nova mensagem de ${msg.fromAlias} (${msg.fromOwner}): ${msg.body}`);
+      sendDesktopNotification(`BotNet: ${msg.fromAlias}`, msg.body.slice(0, 140));
+      if (AUTO_EXEC && msg.intent === 'request') {
+        runHeadlessClaude(msg);
+      }
+    },
+  });
+}
 
 async function ensureRegistered() {
   if (isRegistered) return;
@@ -46,9 +72,10 @@ async function ensureRegistered() {
     });
     isRegistered = true;
     startHeartbeat();
+    startEmbeddedWatcher();
   } catch (err) {
     // Non-fatal on startup if broker is temporarily offline or alias conflicts
-    console.error(`[claude-mesh mcp] startup register warning: ${err.message}`);
+    console.error(`[botnet mcp] startup register warning: ${err.message}`);
   }
 }
 
@@ -69,6 +96,7 @@ async function gracefulShutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   if (heartbeatTimer) clearInterval(heartbeatTimer);
+  if (watcherController) watcherController.abort();
   try {
     await brokerRequest('POST', '/peers/unregister', { agentId: AGENT_ID }, 1000);
   } catch {
@@ -315,7 +343,7 @@ async function handleRpcMessage(msg) {
         result: {
           protocolVersion: params?.protocolVersion || '2024-11-05',
           capabilities: { tools: {} },
-          serverInfo: { name: 'claude-mesh', version: '0.2.0' },
+          serverInfo: { name: 'botnet', version: '0.2.0' },
         },
       });
     }
@@ -358,7 +386,7 @@ rl.on('line', (line) => {
     const msg = JSON.parse(trimmed);
     handleRpcMessage(msg);
   } catch (err) {
-    console.error('[claude-mesh mcp] invalid JSON-RPC line:', err.message);
+    console.error('[botnet mcp] invalid JSON-RPC line:', err.message);
   }
 });
 

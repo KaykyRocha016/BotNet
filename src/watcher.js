@@ -43,19 +43,24 @@ export function createSseParser(onEvent) {
   };
 }
 
-function sendDesktopNotification(title, body) {
+export function sendDesktopNotification(title, body) {
+  if (process.env.CLAUDE_MESH_NOTIFY === '0') return;
   const platform = os.platform();
   if (platform === 'darwin') {
     const script = `display notification ${JSON.stringify(body)} with title ${JSON.stringify(title)}`;
-    spawn('osascript', ['-e', script], { stdio: 'ignore' }).unref();
+    const child = spawn('osascript', ['-e', script], { stdio: 'ignore' });
+    child.on('error', () => {});
+    child.unref();
   } else if (platform === 'linux') {
-    spawn('notify-send', [title, body], { stdio: 'ignore' }).unref();
+    const child = spawn('notify-send', [title, body], { stdio: 'ignore' });
+    child.on('error', () => {});
+    child.unref();
   }
 }
 
-function runHeadlessClaude(msg) {
+export function runHeadlessClaude(msg) {
   const prompt = [
-    `Você recebeu uma mensagem direta via claude-mesh de ${msg.fromAlias} (${msg.fromOwner}).`,
+    `Você recebeu uma mensagem direta via botnet de ${msg.fromAlias} (${msg.fromOwner}).`,
     `Thread: ${msg.threadId} | Intent: ${msg.intent}`,
     `Mensagem: ${msg.body}`,
     msg.contextRefs?.length ? `Referências: ${msg.contextRefs.join(', ')}` : '',
@@ -66,7 +71,7 @@ function runHeadlessClaude(msg) {
 
   const child = spawn('claude', ['-p', prompt], { stdio: 'inherit' });
   child.on('error', (err) => {
-    console.error(`[claude-mesh watcher] falha ao executar claude -p: ${err.message}`);
+    console.error(`[botnet watcher] falha ao executar claude -p: ${err.message}`);
   });
 }
 
@@ -112,7 +117,7 @@ export async function startWatcher({
       }
     } catch (err) {
       if (signal?.aborted) break;
-      console.error(`[claude-mesh watcher] conexão SSE encerrada (${err.message}). Reconectando em ${reconnectMs}ms...`);
+      console.error(`[botnet watcher] conexão SSE encerrada (${err.message}). Reconectando em ${reconnectMs}ms...`);
     }
 
     if (signal?.aborted) break;
@@ -138,19 +143,19 @@ if (isMain) {
   process.on('SIGINT', () => controller.abort());
   process.on('SIGTERM', () => controller.abort());
 
-  console.log(`[claude-mesh watcher] escutando eventos para ${agentId} em ${brokerUrl}...`);
+  console.log(`[botnet watcher] escutando eventos para ${agentId} em ${brokerUrl}...`);
   startWatcher({
     brokerUrl,
     token,
     agentId,
     signal: controller.signal,
     onConnected: () => {
-      console.log(`[claude-mesh watcher] conectado!`);
+      console.log(`[botnet watcher] conectado!`);
     },
     onMessage: (msg) => {
       console.log(`\n[NOVA MENSAGEM] De ${msg.fromAlias} (${msg.fromOwner}) | thread: ${msg.threadId} | intent: ${msg.intent}`);
       console.log(`  ${msg.body}`);
-      sendDesktopNotification(`Claude Mesh: ${msg.fromAlias}`, msg.body.slice(0, 140));
+      sendDesktopNotification(`BotNet: ${msg.fromAlias}`, msg.body.slice(0, 140));
       if (autoExec && msg.intent === 'request') {
         runHeadlessClaude(msg);
       }

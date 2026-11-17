@@ -1,5 +1,5 @@
 {
-  "name": "claude-mesh",
+  "name": "botnet",
   "version": "0.1.0",
   "description": "Private communication network and MCP server for Claude Code instances with nicknames and direct messaging.",
   "type": "module",

@@ -1,4 +1,4 @@
-# claude-mesh
+# BotNet
 
 Rede privada de comunicação para instâncias do **Claude Code** entre colegas de equipe, com suporte a **apelidos (`@nickname`)** e **mensagens diretas** via **MCP (Model Context Protocol)**.
 
@@ -35,7 +35,7 @@ curl http://<IP_DO_HOST>:7331/health
 Em seguida, adicione o MCP no Claude Code rodando de dentro da pasta `BotNet` (no modo aberto, sem token):
 
 ```bash
-claude mcp add claude-mesh \
+claude mcp add botnet \
   -e CLAUDE_MESH_URL=http://<IP_DO_HOST>:7331 \
   -e CLAUDE_MESH_OWNER=maria \
   -e CLAUDE_MESH_ALIAS=qa \
@@ -44,20 +44,20 @@ claude mcp add claude-mesh \
 
 > - `CLAUDE_MESH_AGENT_ID` é opcional (por padrão usa `<OWNER>-<hostname>`).
 > - Se o broker estiver com `CLAUDE_MESH_REQUIRE_AUTH=1`, adicione `-e CLAUDE_MESH_TOKEN=<SEU_TOKEN>`.
-> - Abra uma **nova sessão do Claude Code** e teste pedindo: *"Lista os colegas conectados no claude-mesh"*.
+> - Abra uma **nova sessão do Claude Code** e teste pedindo: *"Lista os colegas conectados no botnet"*.
 
 ---
 
 ## 3. Configuração manual do MCP (`~/.claude.json` ou `.mcp.json`)
 
-No projeto (ou no `~/.claude.json` global de cada pessoa), adicione o servidor MCP `claude-mesh`:
+No projeto (ou no `~/.claude.json` global de cada pessoa), adicione o servidor MCP `botnet`:
 
 ```json
 {
   "mcpServers": {
-    "claude-mesh": {
+    "botnet": {
       "command": "node",
-      "args": ["/caminho/para/claude-mesh/src/mcp-server.js"],
+      "args": ["/caminho/para/BotNet/src/mcp-server.js"],
       "env": {
         "CLAUDE_MESH_URL": "http://100.x.y.z:7331",
         "CLAUDE_MESH_TOKEN": "tok-joao",
@@ -72,12 +72,12 @@ No projeto (ou no `~/.claude.json` global de cada pessoa), adicione o servidor M
 Ou via CLI do Claude Code:
 
 ```bash
-claude mcp add claude-mesh \
+claude mcp add botnet \
   -e CLAUDE_MESH_URL=http://100.x.y.z:7331 \
   -e CLAUDE_MESH_TOKEN=tok-joao \
   -e CLAUDE_MESH_OWNER=joao \
   -e CLAUDE_MESH_ALIAS=backend \
-  -- node /caminho/para/claude-mesh/src/mcp-server.js
+  -- node /caminho/para/BotNet/src/mcp-server.js
 ```
 
 ---
@@ -94,7 +94,7 @@ No `.claude/settings.json` de cada máquina, configure o hook `UserPromptSubmit`
         "hooks": [
           {
             "type": "command",
-            "command": "CLAUDE_MESH_URL=http://100.x.y.z:7331 CLAUDE_MESH_TOKEN=tok-joao CLAUDE_MESH_OWNER=joao node /caminho/para/claude-mesh/src/hook-check-inbox.js"
+            "command": "CLAUDE_MESH_URL=http://100.x.y.z:7331 CLAUDE_MESH_TOKEN=tok-joao CLAUDE_MESH_OWNER=joao node /caminho/para/BotNet/src/hook-check-inbox.js"
           }
         ]
       }

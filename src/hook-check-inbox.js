@@ -28,7 +28,7 @@ async function main() {
       .join('\n');
 
     console.log(
-      `[claude-mesh] Você tem ${messages.length} mensagem(ns) direta(s) não lida(s). Use a tool read_inbox para ler e marcar como lida:\n${preview}`
+      `[botnet] Você tem ${messages.length} mensagem(ns) direta(s) não lida(s). Use a tool read_inbox para ler e marcar como lida:\n${preview}`
     );
   } catch {
     // Fail silently so the hook never blocks Claude Code if the broker is unreachable
