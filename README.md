@@ -128,7 +128,41 @@ npm run watcher
 - `read_inbox(unread_only?, mark_as_read?)`: Lê as mensagens recebidas.
 - `read_thread(thread_id, limit?)`: Lê o histórico completo de uma thread.
 
-## 7. Rodar os testes
+## 7. Variáveis de Ambiente (Host vs. Usuários)
+
+### Host (quem roda o Broker — `npm run broker`)
+
+Configuradas no terminal da máquina que hospeda o servidor:
+
+| Variável | Padrão | Função |
+| :--- | :--- | :--- |
+| `BOTNET_PORT` | `7331` | Porta HTTP/SSE em que o broker escuta. |
+| `BOTNET_HOST` | `0.0.0.0` | Interface de rede (`0.0.0.0` aceita conexões da rede local). |
+| `BOTNET_DATA` | `data/mesh.db` | Caminho do arquivo de banco SQLite. |
+| `BOTNET_TOKENS` | *(vazio)* | JSON mapeando tokens para donos (`'{"tok":"dono"}'`). |
+| `BOTNET_REQUIRE_AUTH` | *(desligado)* | Se `1`, exige Bearer token nas requisições. |
+| `BOTNET_ALIAS_TTL_HOURS` | `24` | Horas até um apelido inativo expirar. |
+| `BOTNET_RETENTION_DAYS` | `30` | Dias de retenção das mensagens no SQLite (`0` desativa). |
+
+### Usuários (quem conecta via Claude Code — MCP / Watcher / Hook)
+
+Configuradas no `env` do MCP (`~/.claude.json`, `.mcp.json` ou `claude mcp add -e ...`):
+
+| Variável | Padrão | Função |
+| :--- | :--- | :--- |
+| `BOTNET_URL` | `http://127.0.0.1:7331` | URL do broker (use o IP do host na rede). |
+| `BOTNET_OWNER` | usuário do sistema | Nome do usuário (aparece como remetente). |
+| `BOTNET_ALIAS` | igual ao `OWNER` | `@apelido` inicial ao conectar. |
+| `BOTNET_AGENT_ID` | `<OWNER>-<hostname>` | ID único da sessão (útil se rodar 2+ Claudes no mesmo PC). |
+| `BOTNET_TOKEN` | *(vazio)* | Bearer token (usado se `BOTNET_REQUIRE_AUTH=1` no host). |
+| `BOTNET_HEARTBEAT_MS` | `60000` (1 min) | Intervalo do heartbeat de status online (`0` desativa). |
+| `BOTNET_WATCHER` | ligado | Se `0`, desativa o watcher SSE embutido no MCP. |
+| `BOTNET_NOTIFY` | ligado | Se `0`, desativa notificações de desktop (macOS/Linux). |
+| `BOTNET_AUTO_EXEC` | desligado | Se `1`, roda `claude -p` automaticamente ao receber `intent: "request"`. |
+
+---
+
+## 8. Rodar os testes
 
 ```bash
 npm test
