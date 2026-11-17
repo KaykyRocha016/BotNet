@@ -48,8 +48,9 @@ export function createBrokerServer({
   dataFilePath = null,
   tokens = null,
   allowOpenDev = true,
+  aliasTtlMs = 24 * 60 * 60 * 1000,
 } = {}) {
-  const store = new MeshStore(dataFilePath);
+  const store = new MeshStore(dataFilePath, { aliasTtlMs });
   const sseClients = new Map(); // agentId -> Set<ServerResponse>
 
   function emitToAgent(agentId, eventName, data) {
@@ -94,6 +95,7 @@ export function createBrokerServer({
           agentId: body.agentId,
           owner,
           aliases: body.aliases || (body.alias ? [body.alias] : []),
+          force: Boolean(body.force),
         });
         return sendJson(res, 200, { peer });
       }
@@ -106,8 +108,21 @@ export function createBrokerServer({
           owner,
           alias: body.alias,
           append: Boolean(body.append),
+          force: Boolean(body.force),
         });
         return sendJson(res, 200, { peer });
+      }
+
+      if (req.method === 'POST' && pathname === '/peers/heartbeat') {
+        const body = await readJsonBody(req);
+        const peer = store.heartbeat(body.agentId);
+        return sendJson(res, 200, { peer });
+      }
+
+      if (req.method === 'POST' && pathname === '/peers/unregister') {
+        const body = await readJsonBody(req);
+        const removed = store.unregisterPeer(body.agentId);
+        return sendJson(res, 200, { removed });
       }
 
       if (req.method === 'GET' && pathname === '/peers') {
@@ -142,6 +157,13 @@ export function createBrokerServer({
         return sendJson(res, 200, { messages });
       }
 
+      if (req.method === 'GET' && pathname.startsWith('/threads/')) {
+        const threadId = decodeURIComponent(pathname.slice('/threads/'.length));
+        const limit = Number(url.searchParams.get('limit') || 100);
+        const messages = store.getThread(threadId, { limit });
+        return sendJson(res, 200, { threadId, messages });
+      }
+
       if (req.method === 'POST' && pathname === '/inbox/ack') {
         const body = await readJsonBody(req);
         const acked = store.ackMessages(body.agentId, body.messageIds || []);
@@ -173,6 +195,10 @@ export function createBrokerServer({
     }
   });
 
+  server.on('close', () => {
+    store.close();
+  });
+
   return { server, store };
 }
 
@@ -180,14 +206,28 @@ const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv
 if (isMain) {
   const port = Number(process.env.CLAUDE_MESH_PORT || 7331);
   const host = process.env.CLAUDE_MESH_HOST || '0.0.0.0';
-  const dataFilePath = process.env.CLAUDE_MESH_DATA || path.resolve(process.cwd(), 'data', 'mesh-state.json');
+  const dataFilePath = process.env.CLAUDE_MESH_DATA || path.resolve(process.cwd(), 'data', 'mesh.db');
   const tokens = loadTokens(process.env.CLAUDE_MESH_TOKENS);
   const allowOpenDev = process.env.CLAUDE_MESH_REQUIRE_AUTH !== '1';
+  const aliasTtlHours = Number(process.env.CLAUDE_MESH_ALIAS_TTL_HOURS || 24);
+  const retentionDays = Number(process.env.CLAUDE_MESH_RETENTION_DAYS || 30);
 
-  const { server } = createBrokerServer({ dataFilePath, tokens, allowOpenDev });
+  const { server, store } = createBrokerServer({
+    dataFilePath,
+    tokens,
+    allowOpenDev,
+    aliasTtlMs: aliasTtlHours * 60 * 60 * 1000,
+  });
+
+  if (retentionDays > 0) {
+    const prune = () => store.cleanupOldMessages(retentionDays * 24 * 60 * 60 * 1000);
+    prune();
+    setInterval(prune, 6 * 60 * 60 * 1000).unref();
+  }
+
   server.listen(port, host, () => {
     console.log(`[claude-mesh broker] listening on http://${host}:${port}`);
-    console.log(`[claude-mesh broker] state file: ${dataFilePath}`);
+    console.log(`[claude-mesh broker] sqlite db: ${dataFilePath}`);
     console.log(`[claude-mesh broker] auth mode: ${tokens ? 'Bearer token' : 'Open Dev (no CLAUDE_MESH_TOKENS set)'}`);
   });
 }

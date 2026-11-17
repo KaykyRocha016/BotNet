@@ -6,25 +6,35 @@ const TOKEN = process.env.CLAUDE_MESH_TOKEN || '';
 const OWNER = process.env.CLAUDE_MESH_OWNER || os.userInfo().username || 'dev';
 const AGENT_ID = process.env.CLAUDE_MESH_AGENT_ID || `${OWNER}-${os.hostname()}`;
 const INITIAL_ALIAS = process.env.CLAUDE_MESH_ALIAS || OWNER;
+const HEARTBEAT_MS = Number(process.env.CLAUDE_MESH_HEARTBEAT_MS || 60_000);
 
-async function brokerRequest(method, path, body = null) {
+async function brokerRequest(method, path, body = null, timeoutMs = 5000) {
   const headers = { 'Content-Type': 'application/json' };
   if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
 
-  const res = await fetch(`${BROKER_URL}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.error || `Broker HTTP ${res.status}`);
+  try {
+    const res = await fetch(`${BROKER_URL}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Broker HTTP ${res.status}`);
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
   }
-  return data;
 }
 
 let isRegistered = false;
+let heartbeatTimer = null;
 
 async function ensureRegistered() {
   if (isRegistered) return;
@@ -35,9 +45,34 @@ async function ensureRegistered() {
       aliases: INITIAL_ALIAS ? [INITIAL_ALIAS] : [],
     });
     isRegistered = true;
+    startHeartbeat();
   } catch (err) {
     // Non-fatal on startup if broker is temporarily offline or alias conflicts
     console.error(`[claude-mesh mcp] startup register warning: ${err.message}`);
+  }
+}
+
+function startHeartbeat() {
+  if (heartbeatTimer || HEARTBEAT_MS <= 0) return;
+  heartbeatTimer = setInterval(async () => {
+    try {
+      await brokerRequest('POST', '/peers/heartbeat', { agentId: AGENT_ID }, 2500);
+    } catch {
+      // Ignore transient heartbeat errors
+    }
+  }, HEARTBEAT_MS);
+  heartbeatTimer.unref();
+}
+
+let shuttingDown = false;
+async function gracefulShutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  try {
+    await brokerRequest('POST', '/peers/unregister', { agentId: AGENT_ID }, 1000);
+  } catch {
+    // Best-effort unregister on exit
   }
 }
 
@@ -58,6 +93,11 @@ const TOOLS = [
           description: 'Se true, adiciona este apelido aos existentes em vez de substituir.',
           default: false,
         },
+        force: {
+          type: 'boolean',
+          description: 'Se true, recupera o apelido de outra sessão antiga do mesmo dono.',
+          default: false,
+        },
       },
       required: ['alias'],
     },
@@ -74,13 +114,16 @@ const TOOLS = [
   {
     name: 'send_direct_message',
     description:
-      'Envia uma mensagem direta para um colega/Claude específico usando seu @apelido (ou agentId).',
+      'Envia uma mensagem direta para um ou mais colegas/Claudes específicos usando seus @apelidos (ou agentId).',
     inputSchema: {
       type: 'object',
       properties: {
         to: {
-          type: 'string',
-          description: 'Apelido do destinatário (ex.: "@maria" ou "qa-maria").',
+          oneOf: [
+            { type: 'string' },
+            { type: 'array', items: { type: 'string' }, minItems: 1 },
+          ],
+          description: 'Apelido(s) do(s) destinatário(s) (ex.: "@maria" ou ["@maria", "@pedro"]).',
         },
         message: {
           type: 'string',
@@ -125,7 +168,36 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: 'read_thread',
+    description:
+      'Lê o histórico cronológico completo de uma conversa (thread_id) entre os Claudes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        thread_id: {
+          type: 'string',
+          description: 'ID da thread (ex.: "thr_1234abcd").',
+        },
+        limit: {
+          type: 'number',
+          description: 'Máximo de mensagens a retornar (padrão: 100).',
+          default: 100,
+        },
+      },
+      required: ['thread_id'],
+    },
+  },
 ];
+
+function formatMessages(messages) {
+  return messages
+    .map((m) => {
+      const refs = m.contextRefs?.length ? `\n  Refs: ${m.contextRefs.join(', ')}` : '';
+      return `[${m.createdAt}] De ${m.fromAlias} (${m.fromOwner}) -> ${m.toAliases.join(', ')} | thread: ${m.threadId} | intent: ${m.intent}\n  ${m.body}${refs}`;
+    })
+    .join('\n\n');
+}
 
 async function handleToolCall(name, args = {}) {
   switch (name) {
@@ -135,8 +207,10 @@ async function handleToolCall(name, args = {}) {
         owner: OWNER,
         alias: args.alias,
         append: Boolean(args.append),
+        force: Boolean(args.force),
       });
       isRegistered = true;
+      startHeartbeat();
       return {
         content: [
           {
@@ -162,7 +236,6 @@ async function handleToolCall(name, args = {}) {
     }
 
     case 'send_direct_message': {
-      // Ensure sender is registered before sending
       await ensureRegistered();
       const { message } = await brokerRequest('POST', '/messages', {
         fromAgentId: AGENT_ID,
@@ -199,13 +272,21 @@ async function handleToolCall(name, args = {}) {
           ],
         };
       }
-      const formatted = messages
-        .map((m) => {
-          const refs = m.contextRefs?.length ? `\n  Refs: ${m.contextRefs.join(', ')}` : '';
-          return `[${m.createdAt}] De ${m.fromAlias} (${m.fromOwner}) | thread: ${m.threadId} | intent: ${m.intent}\n  ${m.body}${refs}`;
-        })
-        .join('\n\n');
-      return { content: [{ type: 'text', text: formatted }] };
+      return { content: [{ type: 'text', text: formatMessages(messages) }] };
+    }
+
+    case 'read_thread': {
+      const limit = Number(args.limit || 100);
+      const { messages } = await brokerRequest(
+        'GET',
+        `/threads/${encodeURIComponent(args.thread_id)}?limit=${limit}`
+      );
+      if (messages.length === 0) {
+        return {
+          content: [{ type: 'text', text: `Nenhuma mensagem encontrada na thread "${args.thread_id}".` }],
+        };
+      }
+      return { content: [{ type: 'text', text: formatMessages(messages) }] };
     }
 
     default:
@@ -221,7 +302,6 @@ async function handleRpcMessage(msg) {
   const { id, method, params } = msg;
   if (!method) return;
 
-  // Notifications have no id and expect no response
   if (id === undefined || id === null) {
     return;
   }
@@ -235,7 +315,7 @@ async function handleRpcMessage(msg) {
         result: {
           protocolVersion: params?.protocolVersion || '2024-11-05',
           capabilities: { tools: {} },
-          serverInfo: { name: 'claude-mesh', version: '0.1.0' },
+          serverInfo: { name: 'claude-mesh', version: '0.2.0' },
         },
       });
     }
@@ -280,4 +360,16 @@ rl.on('line', (line) => {
   } catch (err) {
     console.error('[claude-mesh mcp] invalid JSON-RPC line:', err.message);
   }
+});
+
+rl.on('close', () => {
+  gracefulShutdown().finally(() => process.exit(0));
+});
+
+process.on('SIGINT', () => {
+  gracefulShutdown().finally(() => process.exit(0));
+});
+
+process.on('SIGTERM', () => {
+  gracefulShutdown().finally(() => process.exit(0));
 });

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 
 /**
  * Normalizes a nickname by trimming whitespace, stripping leading '@', and lowercasing.
@@ -18,80 +19,140 @@ export function formatAlias(alias) {
   return norm ? `@${norm}` : '';
 }
 
+function rowToPeer(row) {
+  if (!row) return null;
+  return {
+    agentId: row.agent_id,
+    owner: row.owner,
+    aliases: JSON.parse(row.aliases),
+    lastSeen: row.last_seen,
+  };
+}
+
+function rowToMessage(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    fromAgentId: row.from_agent_id,
+    fromOwner: row.from_owner,
+    fromAlias: row.from_alias,
+    toAgentIds: JSON.parse(row.to_agent_ids),
+    toAliases: JSON.parse(row.to_aliases),
+    threadId: row.thread_id,
+    intent: row.intent,
+    body: row.body,
+    contextRefs: JSON.parse(row.context_refs),
+    createdAt: row.created_at,
+    readBy: JSON.parse(row.read_by),
+  };
+}
+
 /**
- * File-backed store for peers, aliases, and direct messages.
+ * SQLite-backed store (via node:sqlite) for peers, aliases, and direct messages.
  */
 export class MeshStore {
-  constructor(dataFilePath = null) {
+  constructor(dataFilePath = null, { aliasTtlMs = 24 * 60 * 60 * 1000 } = {}) {
     this.dataFilePath = dataFilePath;
-    this.state = {
-      peers: {}, // agentId -> { agentId, owner, aliases: string[], lastSeen: number }
-      messages: [], // { id, fromAgentId, fromAlias, toAliases, toAgentIds, threadId, intent, body, contextRefs, createdAt, readBy: string[] }
-    };
-    if (this.dataFilePath) {
-      this._load();
+    this.aliasTtlMs = aliasTtlMs;
+
+    if (dataFilePath && dataFilePath !== ':memory:') {
+      fs.mkdirSync(path.dirname(dataFilePath), { recursive: true });
     }
+
+    this.db = new DatabaseSync(dataFilePath || ':memory:');
+    this._initSchema();
   }
 
-  _load() {
-    try {
-      if (fs.existsSync(this.dataFilePath)) {
-        const raw = fs.readFileSync(this.dataFilePath, 'utf8');
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') {
-          this.state.peers = parsed.peers || {};
-          this.state.messages = Array.isArray(parsed.messages) ? parsed.messages : [];
-        }
-      }
-    } catch (err) {
-      console.error(`[store] Failed to load state from ${this.dataFilePath}:`, err.message);
-    }
+  _initSchema() {
+    this.db.exec(`
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE IF NOT EXISTS peers (
+        agent_id TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        aliases TEXT NOT NULL,
+        last_seen INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        from_agent_id TEXT NOT NULL,
+        from_owner TEXT NOT NULL,
+        from_alias TEXT NOT NULL,
+        to_agent_ids TEXT NOT NULL,
+        to_aliases TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        intent TEXT NOT NULL,
+        body TEXT NOT NULL,
+        context_refs TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL,
+        read_by TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id);
+      CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at_ms);
+    `);
   }
 
-  _save() {
-    if (!this.dataFilePath) return;
-    const dir = path.dirname(this.dataFilePath);
-    fs.mkdirSync(dir, { recursive: true });
-    const tmpPath = `${this.dataFilePath}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(this.state, null, 2), 'utf8');
-    fs.renameSync(tmpPath, this.dataFilePath);
+  close() {
+    this.db.close();
+  }
+
+  _getPeerRow(agentId) {
+    return this.db.prepare('SELECT * FROM peers WHERE agent_id = ?').get(agentId);
   }
 
   /**
-   * Registers or updates a peer and validates that none of its aliases are held by another peer.
+   * Registers or updates a peer and validates that none of its aliases are held by another active peer.
+   * Expired aliases (lastSeen older than aliasTtlMs) or same-owner aliases with force=true can be reclaimed.
    */
-  registerPeer({ agentId, owner, aliases = [] }) {
+  registerPeer({ agentId, owner, aliases = [], force = false }) {
     if (!agentId || typeof agentId !== 'string') {
-      throw new Error('agentId is required');
+      const err = new Error('agentId is required');
+      err.statusCode = 400;
+      throw err;
     }
+
     const cleanAliases = [...new Set(aliases.map(normalizeAlias).filter(Boolean))];
+    const now = Date.now();
+    const existing = rowToPeer(this._getPeerRow(agentId));
+    const resolvedOwner = owner || existing?.owner || 'unknown';
 
     // Check alias collisions against other peers
     for (const alias of cleanAliases) {
       const holder = this.findPeerByAlias(alias);
       if (holder && holder.agentId !== agentId) {
-        const err = new Error(`Apelido "@${alias}" já está em uso por ${holder.owner} (${holder.agentId}).`);
-        err.statusCode = 409;
-        throw err;
+        const isExpired = now - holder.lastSeen > this.aliasTtlMs;
+        const canReclaim = isExpired || (force && holder.owner === resolvedOwner);
+        if (!canReclaim) {
+          const err = new Error(`Apelido "@${alias}" já está em uso por ${holder.owner} (${holder.agentId}).`);
+          err.statusCode = 409;
+          throw err;
+        }
+        // Release alias from stale/reclaimed holder
+        const remaining = holder.aliases.filter((a) => a !== alias);
+        this.db.prepare('UPDATE peers SET aliases = ? WHERE agent_id = ?').run(
+          JSON.stringify(remaining),
+          holder.agentId
+        );
       }
     }
 
-    const existing = this.state.peers[agentId];
-    const peer = {
-      agentId,
-      owner: owner || existing?.owner || 'unknown',
-      aliases: cleanAliases.length > 0 ? cleanAliases : (existing?.aliases || []),
-      lastSeen: Date.now(),
-    };
-    this.state.peers[agentId] = peer;
-    this._save();
-    return peer;
+    const finalAliases = cleanAliases.length > 0 ? cleanAliases : (existing?.aliases || []);
+    this.db.prepare(`
+      INSERT INTO peers (agent_id, owner, aliases, last_seen)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(agent_id) DO UPDATE SET
+        owner = excluded.owner,
+        aliases = excluded.aliases,
+        last_seen = excluded.last_seen
+    `).run(agentId, resolvedOwner, JSON.stringify(finalAliases), now);
+
+    return rowToPeer(this._getPeerRow(agentId));
   }
 
   /**
    * Sets (replaces or adds) nicknames for an existing or new peer.
    */
-  setNickname({ agentId, owner, alias, append = false }) {
+  setNickname({ agentId, owner, alias, append = false, force = false }) {
     const norm = normalizeAlias(alias);
     if (!norm) {
       const err = new Error('Apelido inválido.');
@@ -99,7 +160,7 @@ export class MeshStore {
       throw err;
     }
 
-    const existing = this.state.peers[agentId];
+    const existing = rowToPeer(this._getPeerRow(agentId));
     const nextAliases = append && existing
       ? [...new Set([...existing.aliases, norm])]
       : [norm];
@@ -108,52 +169,79 @@ export class MeshStore {
       agentId,
       owner: owner || existing?.owner || 'unknown',
       aliases: nextAliases,
+      force,
     });
   }
 
   touchPeer(agentId) {
-    if (this.state.peers[agentId]) {
-      this.state.peers[agentId].lastSeen = Date.now();
-      this._save();
+    const info = this.db.prepare('UPDATE peers SET last_seen = ? WHERE agent_id = ?').run(
+      Date.now(),
+      agentId
+    );
+    return info.changes > 0;
+  }
+
+  heartbeat(agentId) {
+    const updated = this.touchPeer(agentId);
+    if (!updated) {
+      const err = new Error(`Peer "${agentId}" não encontrado para heartbeat.`);
+      err.statusCode = 404;
+      throw err;
     }
+    return rowToPeer(this._getPeerRow(agentId));
+  }
+
+  unregisterPeer(agentId) {
+    const info = this.db.prepare('DELETE FROM peers WHERE agent_id = ?').run(agentId);
+    return info.changes > 0;
   }
 
   findPeerByAlias(alias) {
     const norm = normalizeAlias(alias);
     if (!norm) return null;
-    return Object.values(this.state.peers).find((p) => p.aliases.includes(norm)) || null;
+    const rows = this.db.prepare('SELECT * FROM peers').all();
+    for (const row of rows) {
+      const peer = rowToPeer(row);
+      if (peer.aliases.includes(norm)) {
+        return peer;
+      }
+    }
+    return null;
   }
 
   resolveRecipient(target) {
     if (!target || typeof target !== 'string') return null;
     const trimmed = target.trim();
-    if (this.state.peers[trimmed]) {
-      return this.state.peers[trimmed];
-    }
+    const byId = rowToPeer(this._getPeerRow(trimmed));
+    if (byId) return byId;
     return this.findPeerByAlias(trimmed);
   }
 
   listPeers(onlineThresholdMs = 5 * 60 * 1000) {
     const now = Date.now();
-    return Object.values(this.state.peers).map((p) => ({
-      ...p,
-      formattedAliases: p.aliases.map(formatAlias),
-      online: now - p.lastSeen <= onlineThresholdMs,
-    }));
+    const rows = this.db.prepare('SELECT * FROM peers ORDER BY last_seen DESC').all();
+    return rows.map((row) => {
+      const p = rowToPeer(row);
+      return {
+        ...p,
+        formattedAliases: p.aliases.map(formatAlias),
+        online: now - p.lastSeen <= onlineThresholdMs,
+      };
+    });
   }
 
   /**
    * Stores a direct message addressed to one or more recipients (aliases or agentIds).
    */
   sendMessage({ fromAgentId, to, body, threadId = null, intent = 'message', contextRefs = [] }) {
-    const sender = this.state.peers[fromAgentId];
+    const sender = rowToPeer(this._getPeerRow(fromAgentId));
     if (!sender) {
       const err = new Error(`Remetente "${fromAgentId}" não registrado. Registre o peer antes de enviar.`);
       err.statusCode = 400;
       throw err;
     }
 
-    const targets = Array.isArray(to) ? to : [to];
+    const targets = (Array.isArray(to) ? to : [to]).filter(Boolean);
     if (targets.length === 0 || !body || typeof body !== 'string') {
       const err = new Error('Campos "to" e "body" são obrigatórios.');
       err.statusCode = 400;
@@ -178,10 +266,11 @@ export class MeshStore {
     }
 
     const toAgentIds = [...new Set(resolvedPeers.map((p) => p.agentId))];
-    const toAliases = resolvedPeers.map((p) =>
-      p.aliases[0] ? formatAlias(p.aliases[0]) : p.agentId
-    );
+    const toAliases = [...new Set(
+      resolvedPeers.map((p) => (p.aliases[0] ? formatAlias(p.aliases[0]) : p.agentId))
+    )];
 
+    const nowMs = Date.now();
     const msg = {
       id: `msg_${crypto.randomUUID().slice(0, 8)}`,
       fromAgentId: sender.agentId,
@@ -193,45 +282,92 @@ export class MeshStore {
       intent,
       body,
       contextRefs: Array.isArray(contextRefs) ? contextRefs : [],
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(nowMs).toISOString(),
       readBy: [],
     };
 
-    this.state.messages.push(msg);
-    sender.lastSeen = Date.now();
-    this._save();
+    this.db.prepare(`
+      INSERT INTO messages (
+        id, from_agent_id, from_owner, from_alias, to_agent_ids, to_aliases,
+        thread_id, intent, body, context_refs, created_at, created_at_ms, read_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      msg.id,
+      msg.fromAgentId,
+      msg.fromOwner,
+      msg.fromAlias,
+      JSON.stringify(msg.toAgentIds),
+      JSON.stringify(msg.toAliases),
+      msg.threadId,
+      msg.intent,
+      msg.body,
+      JSON.stringify(msg.contextRefs),
+      msg.createdAt,
+      nowMs,
+      JSON.stringify(msg.readBy)
+    );
+
+    this.touchPeer(fromAgentId);
     return msg;
   }
 
   getInbox(agentId, { unreadOnly = false, markAsRead = false, limit = 50 } = {}) {
     this.touchPeer(agentId);
-    let list = this.state.messages.filter((m) => m.toAgentIds.includes(agentId));
+    const rows = this.db.prepare('SELECT * FROM messages ORDER BY rowid ASC').all();
+    let list = rows.map(rowToMessage).filter((m) => m.toAgentIds.includes(agentId));
+
     if (unreadOnly) {
       list = list.filter((m) => !m.readBy.includes(agentId));
     }
     const sliced = list.slice(-limit);
+
     if (markAsRead && sliced.length > 0) {
+      const updateStmt = this.db.prepare('UPDATE messages SET read_by = ? WHERE id = ?');
       for (const m of sliced) {
         if (!m.readBy.includes(agentId)) {
           m.readBy.push(agentId);
+          updateStmt.run(JSON.stringify(m.readBy), m.id);
         }
       }
-      this._save();
     }
     return sliced;
   }
 
+  getThread(threadId, { limit = 100 } = {}) {
+    if (!threadId || typeof threadId !== 'string') {
+      const err = new Error('threadId é obrigatório.');
+      err.statusCode = 400;
+      throw err;
+    }
+    const rows = this.db
+      .prepare('SELECT * FROM messages WHERE thread_id = ? ORDER BY rowid ASC LIMIT ?')
+      .all(threadId, limit);
+    return rows.map(rowToMessage);
+  }
+
   ackMessages(agentId, messageIds = []) {
+    if (!Array.isArray(messageIds) || messageIds.length === 0) return 0;
+    const selectStmt = this.db.prepare('SELECT * FROM messages WHERE id = ?');
+    const updateStmt = this.db.prepare('UPDATE messages SET read_by = ? WHERE id = ?');
     let count = 0;
-    for (const m of this.state.messages) {
-      if (messageIds.includes(m.id) && m.toAgentIds.includes(agentId) && !m.readBy.includes(agentId)) {
+
+    for (const id of messageIds) {
+      const row = selectStmt.get(id);
+      if (!row) continue;
+      const m = rowToMessage(row);
+      if (m.toAgentIds.includes(agentId) && !m.readBy.includes(agentId)) {
         m.readBy.push(agentId);
+        updateStmt.run(JSON.stringify(m.readBy), m.id);
         count++;
       }
     }
-    if (count > 0) {
-      this._save();
-    }
     return count;
+  }
+
+  cleanupOldMessages(maxAgeMs) {
+    if (!maxAgeMs || maxAgeMs <= 0) return 0;
+    const cutoff = Date.now() - maxAgeMs;
+    const info = this.db.prepare('DELETE FROM messages WHERE created_at_ms < ?').run(cutoff);
+    return info.changes;
   }
 }

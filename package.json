@@ -6,6 +6,7 @@
   "scripts": {
     "broker": "node src/broker.js",
     "mcp": "node src/mcp-server.js",
+    "watcher": "node src/watcher.js",
     "hook:inbox": "node src/hook-check-inbox.js",
     "test": "node --test test/*.test.js"
   },

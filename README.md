@@ -105,14 +105,30 @@ No `.claude/settings.json` de cada máquina, configure o hook `UserPromptSubmit`
 
 ---
 
-## 5. Ferramentas disponíveis para o Claude
+## 5. (Opcional) Watcher em tempo real (SSE)
 
-- `set_nickname(alias, append?)`: Define ou adiciona um `@apelido` para o Claude atual.
+Para receber notificações na hora em que um colega mandar mensagem (sem precisar esperar o próximo prompt):
+
+```bash
+CLAUDE_MESH_URL=http://100.x.y.z:7331 \
+CLAUDE_MESH_TOKEN=tok-joao \
+CLAUDE_MESH_OWNER=joao \
+npm run watcher
+```
+
+> Adicione `CLAUDE_MESH_AUTO_EXEC=1` se quiser que mensagens com `intent: "request"` disparem `claude -p` automaticamente.
+
+---
+
+## 6. Ferramentas disponíveis para o Claude
+
+- `set_nickname(alias, append?, force?)`: Define, adiciona ou recupera um `@apelido` para o Claude atual.
 - `list_peers()`: Lista todos os Claudes da equipe, seus apelidos e status online/offline.
-- `send_direct_message(to, message, thread_id?, intent?, context_refs?)`: Envia mensagem direta para um `@apelido`.
+- `send_direct_message(to, message, thread_id?, intent?, context_refs?)`: Envia mensagem direta para um ou mais `@apelidos`.
 - `read_inbox(unread_only?, mark_as_read?)`: Lê as mensagens recebidas.
+- `read_thread(thread_id, limit?)`: Lê o histórico completo de uma thread.
 
-## 6. Rodar os testes
+## 7. Rodar os testes
 
 ```bash
 npm test
