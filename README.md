@@ -9,9 +9,9 @@ Zero dependências externas (Node.js >= 20).
 ## 1. Subir o Broker Central (em uma máquina do Wi-Fi ou VPN/Tailscale)
 
 ```bash
-CLAUDE_MESH_PORT=7331 \
-CLAUDE_MESH_TOKENS='{"tok-joao":"joao","tok-maria":"maria","tok-pedro":"pedro"}' \
-CLAUDE_MESH_REQUIRE_AUTH=1 \
+BOTNET_PORT=7331 \
+BOTNET_TOKENS='{"tok-joao":"joao","tok-maria":"maria","tok-pedro":"pedro"}' \
+BOTNET_REQUIRE_AUTH=1 \
 npm run broker
 ```
 
@@ -36,14 +36,14 @@ Em seguida, adicione o MCP no Claude Code rodando de dentro da pasta `BotNet` (n
 
 ```bash
 claude mcp add botnet \
-  -e CLAUDE_MESH_URL=http://<IP_DO_HOST>:7331 \
-  -e CLAUDE_MESH_OWNER=maria \
-  -e CLAUDE_MESH_ALIAS=qa \
+  -e BOTNET_URL=http://<IP_DO_HOST>:7331 \
+  -e BOTNET_OWNER=maria \
+  -e BOTNET_ALIAS=qa \
   -- node "$(pwd)/src/mcp-server.js"
 ```
 
-> - `CLAUDE_MESH_AGENT_ID` é opcional (por padrão usa `<OWNER>-<hostname>`).
-> - Se o broker estiver com `CLAUDE_MESH_REQUIRE_AUTH=1`, adicione `-e CLAUDE_MESH_TOKEN=<SEU_TOKEN>`.
+> - `BOTNET_AGENT_ID` é opcional (por padrão usa `<OWNER>-<hostname>`).
+> - Se o broker estiver com `BOTNET_REQUIRE_AUTH=1`, adicione `-e BOTNET_TOKEN=<SEU_TOKEN>`.
 > - Abra uma **nova sessão do Claude Code** e teste pedindo: *"Lista os colegas conectados no botnet"*.
 
 ---
@@ -59,10 +59,10 @@ No projeto (ou no `~/.claude.json` global de cada pessoa), adicione o servidor M
       "command": "node",
       "args": ["/caminho/para/BotNet/src/mcp-server.js"],
       "env": {
-        "CLAUDE_MESH_URL": "http://100.x.y.z:7331",
-        "CLAUDE_MESH_TOKEN": "tok-joao",
-        "CLAUDE_MESH_OWNER": "joao",
-        "CLAUDE_MESH_ALIAS": "backend"
+        "BOTNET_URL": "http://100.x.y.z:7331",
+        "BOTNET_TOKEN": "tok-joao",
+        "BOTNET_OWNER": "joao",
+        "BOTNET_ALIAS": "backend"
       }
     }
   }
@@ -73,10 +73,10 @@ Ou via CLI do Claude Code:
 
 ```bash
 claude mcp add botnet \
-  -e CLAUDE_MESH_URL=http://100.x.y.z:7331 \
-  -e CLAUDE_MESH_TOKEN=tok-joao \
-  -e CLAUDE_MESH_OWNER=joao \
-  -e CLAUDE_MESH_ALIAS=backend \
+  -e BOTNET_URL=http://100.x.y.z:7331 \
+  -e BOTNET_TOKEN=tok-joao \
+  -e BOTNET_OWNER=joao \
+  -e BOTNET_ALIAS=backend \
   -- node /caminho/para/BotNet/src/mcp-server.js
 ```
 
@@ -94,7 +94,7 @@ No `.claude/settings.json` de cada máquina, configure o hook `UserPromptSubmit`
         "hooks": [
           {
             "type": "command",
-            "command": "CLAUDE_MESH_URL=http://100.x.y.z:7331 CLAUDE_MESH_TOKEN=tok-joao CLAUDE_MESH_OWNER=joao node /caminho/para/BotNet/src/hook-check-inbox.js"
+            "command": "BOTNET_URL=http://100.x.y.z:7331 BOTNET_TOKEN=tok-joao BOTNET_OWNER=joao node /caminho/para/BotNet/src/hook-check-inbox.js"
           }
         ]
       }
@@ -110,13 +110,13 @@ No `.claude/settings.json` de cada máquina, configure o hook `UserPromptSubmit`
 Para receber notificações na hora em que um colega mandar mensagem (sem precisar esperar o próximo prompt):
 
 ```bash
-CLAUDE_MESH_URL=http://100.x.y.z:7331 \
-CLAUDE_MESH_TOKEN=tok-joao \
-CLAUDE_MESH_OWNER=joao \
+BOTNET_URL=http://100.x.y.z:7331 \
+BOTNET_TOKEN=tok-joao \
+BOTNET_OWNER=joao \
 npm run watcher
 ```
 
-> Adicione `CLAUDE_MESH_AUTO_EXEC=1` se quiser que mensagens com `intent: "request"` disparem `claude -p` automaticamente.
+> Adicione `BOTNET_AUTO_EXEC=1` se quiser que mensagens com `intent: "request"` disparem `claude -p` automaticamente.
 
 ---
 

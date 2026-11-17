@@ -2,14 +2,14 @@ import os from 'node:os';
 import readline from 'node:readline';
 import { startWatcher, sendDesktopNotification, runHeadlessClaude } from './watcher.js';
 
-const BROKER_URL = (process.env.CLAUDE_MESH_URL || 'http://127.0.0.1:7331').replace(/\/+$/, '');
-const TOKEN = process.env.CLAUDE_MESH_TOKEN || '';
-const OWNER = process.env.CLAUDE_MESH_OWNER || os.userInfo().username || 'dev';
-const AGENT_ID = process.env.CLAUDE_MESH_AGENT_ID || `${OWNER}-${os.hostname()}`;
-const INITIAL_ALIAS = process.env.CLAUDE_MESH_ALIAS || OWNER;
-const HEARTBEAT_MS = Number(process.env.CLAUDE_MESH_HEARTBEAT_MS || 60_000);
-const WATCHER_ENABLED = process.env.CLAUDE_MESH_WATCHER !== '0';
-const AUTO_EXEC = process.env.CLAUDE_MESH_AUTO_EXEC === '1';
+const BROKER_URL = (process.env.BOTNET_URL || 'http://127.0.0.1:7331').replace(/\/+$/, '');
+const TOKEN = process.env.BOTNET_TOKEN || '';
+const OWNER = process.env.BOTNET_OWNER || os.userInfo().username || 'dev';
+const AGENT_ID = process.env.BOTNET_AGENT_ID || `${OWNER}-${os.hostname()}`;
+const INITIAL_ALIAS = process.env.BOTNET_ALIAS || OWNER;
+const HEARTBEAT_MS = Number(process.env.BOTNET_HEARTBEAT_MS || 60_000);
+const WATCHER_ENABLED = process.env.BOTNET_WATCHER !== '0';
+const AUTO_EXEC = process.env.BOTNET_AUTO_EXEC === '1';
 
 async function brokerRequest(method, path, body = null, timeoutMs = 5000) {
   const headers = { 'Content-Type': 'application/json' };

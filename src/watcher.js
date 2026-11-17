@@ -44,7 +44,7 @@ export function createSseParser(onEvent) {
 }
 
 export function sendDesktopNotification(title, body) {
-  if (process.env.CLAUDE_MESH_NOTIFY === '0') return;
+  if (process.env.BOTNET_NOTIFY === '0') return;
   const platform = os.platform();
   if (platform === 'darwin') {
     const script = `display notification ${JSON.stringify(body)} with title ${JSON.stringify(title)}`;
@@ -133,11 +133,11 @@ export async function startWatcher({
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
-  const brokerUrl = process.env.CLAUDE_MESH_URL || 'http://127.0.0.1:7331';
-  const token = process.env.CLAUDE_MESH_TOKEN || '';
-  const owner = process.env.CLAUDE_MESH_OWNER || os.userInfo().username || 'dev';
-  const agentId = process.env.CLAUDE_MESH_AGENT_ID || `${owner}-${os.hostname()}`;
-  const autoExec = process.env.CLAUDE_MESH_AUTO_EXEC === '1';
+  const brokerUrl = process.env.BOTNET_URL || 'http://127.0.0.1:7331';
+  const token = process.env.BOTNET_TOKEN || '';
+  const owner = process.env.BOTNET_OWNER || os.userInfo().username || 'dev';
+  const agentId = process.env.BOTNET_AGENT_ID || `${owner}-${os.hostname()}`;
+  const autoExec = process.env.BOTNET_AUTO_EXEC === '1';
 
   const controller = new AbortController();
   process.on('SIGINT', () => controller.abort());

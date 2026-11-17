@@ -167,11 +167,11 @@ test('MCP Server stdio: 5 tools, multi-recipient send_direct_message & read_thre
   const child = spawn('node', [path.join(PROJECT_ROOT, 'src', 'mcp-server.js')], {
     env: {
       ...process.env,
-      CLAUDE_MESH_URL: baseUrl,
-      CLAUDE_MESH_AGENT_ID: 'ana-1',
-      CLAUDE_MESH_OWNER: 'ana',
-      CLAUDE_MESH_ALIAS: 'ana',
-      CLAUDE_MESH_HEARTBEAT_MS: '0',
+      BOTNET_URL: baseUrl,
+      BOTNET_AGENT_ID: 'ana-1',
+      BOTNET_OWNER: 'ana',
+      BOTNET_ALIAS: 'ana',
+      BOTNET_HEARTBEAT_MS: '0',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });

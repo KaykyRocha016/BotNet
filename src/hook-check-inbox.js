@@ -1,9 +1,9 @@
 import os from 'node:os';
 
-const BROKER_URL = (process.env.CLAUDE_MESH_URL || 'http://127.0.0.1:7331').replace(/\/+$/, '');
-const TOKEN = process.env.CLAUDE_MESH_TOKEN || '';
-const OWNER = process.env.CLAUDE_MESH_OWNER || os.userInfo().username || 'dev';
-const AGENT_ID = process.env.CLAUDE_MESH_AGENT_ID || `${OWNER}-${os.hostname()}`;
+const BROKER_URL = (process.env.BOTNET_URL || 'http://127.0.0.1:7331').replace(/\/+$/, '');
+const TOKEN = process.env.BOTNET_TOKEN || '';
+const OWNER = process.env.BOTNET_OWNER || os.userInfo().username || 'dev';
+const AGENT_ID = process.env.BOTNET_AGENT_ID || `${OWNER}-${os.hostname()}`;
 
 async function main() {
   const controller = new AbortController();

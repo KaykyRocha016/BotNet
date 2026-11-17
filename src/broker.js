@@ -204,13 +204,13 @@ export function createBrokerServer({
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
-  const port = Number(process.env.CLAUDE_MESH_PORT || 7331);
-  const host = process.env.CLAUDE_MESH_HOST || '0.0.0.0';
-  const dataFilePath = process.env.CLAUDE_MESH_DATA || path.resolve(process.cwd(), 'data', 'mesh.db');
-  const tokens = loadTokens(process.env.CLAUDE_MESH_TOKENS);
-  const allowOpenDev = process.env.CLAUDE_MESH_REQUIRE_AUTH !== '1';
-  const aliasTtlHours = Number(process.env.CLAUDE_MESH_ALIAS_TTL_HOURS || 24);
-  const retentionDays = Number(process.env.CLAUDE_MESH_RETENTION_DAYS || 30);
+  const port = Number(process.env.BOTNET_PORT || 7331);
+  const host = process.env.BOTNET_HOST || '0.0.0.0';
+  const dataFilePath = process.env.BOTNET_DATA || path.resolve(process.cwd(), 'data', 'mesh.db');
+  const tokens = loadTokens(process.env.BOTNET_TOKENS);
+  const allowOpenDev = process.env.BOTNET_REQUIRE_AUTH !== '1';
+  const aliasTtlHours = Number(process.env.BOTNET_ALIAS_TTL_HOURS || 24);
+  const retentionDays = Number(process.env.BOTNET_RETENTION_DAYS || 30);
 
   const { server, store } = createBrokerServer({
     dataFilePath,
@@ -228,6 +228,6 @@ if (isMain) {
   server.listen(port, host, () => {
     console.log(`[botnet broker] listening on http://${host}:${port}`);
     console.log(`[botnet broker] sqlite db: ${dataFilePath}`);
-    console.log(`[botnet broker] auth mode: ${tokens ? 'Bearer token' : 'Open Dev (no CLAUDE_MESH_TOKENS set)'}`);
+    console.log(`[botnet broker] auth mode: ${tokens ? 'Bearer token' : 'Open Dev (no BOTNET_TOKENS set)'}`);
   });
 }
